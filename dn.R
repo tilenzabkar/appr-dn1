@@ -52,27 +52,28 @@ populacija_drzave = str_subset(d, "states.+.xlsx")
 populacija_drzave_vsa_leta = lapply(populacija_drzave, read_excel)
 
 
+
 tabela_predsedniki = stran_predsedniki %>%
   html_nodes(xpath="//table[@class='wikitable sortable sticky-header jquery-tablesorter']") %>%
   .[[1]] %>%
-  html_table()
-
-
-colnames(tabela_predsedniki) = str_replace_all(colnames(tabela_predsedniki), "\\[.+\\]|\\(.+\\)", "")
-tabela_predsedniki = tabela_predsedniki %>% 
-  .[,c(-1, -2, -5, -8)] %>% 
+  html_table() %>% 
+  select(c(-2, -5, -8)) %>% 
+  rename_with(~ str_replace_all(., "\\[.+?\\]|\\(.+?\\)", "")) %>% # z anonimno funkcijo preimenujemo imena stolpcev
   lapply(str_replace_all, pattern="\\[.+?\\]", replacement="") %>%  # odstranimo opombe
-  as.tibble() %>% 
-  rename(predsednik = Name, mandat = Term, stranka = Party, volitve = Election) %>% 
+  as_tibble() %>% 
+  rename(zap_stevilka = No.,predsednik = Name, mandat = Term, stranka = Party, leto_volitev = Election) %>% 
   separate(mandat, into=c("zacetek_mandata", "konec_mandata"), sep="–") %>% 
   mutate(zacetek_mandata = as.Date(strptime(zacetek_mandata, "%B %d, %Y"))) %>% 
   mutate(konec_mandata = as.Date(strptime(konec_mandata, "%B %d, %Y"))) %>% 
-  mutate(predsednik = lapply(predsednik, str_replace_all, pattern="\\(.+?\\)", replacement="")) %>%
-  mutate(volitve = volitve %>% 
+  mutate(predsednik = lapply(predsednik, str_replace_all, 
+                             pattern="\\(.+?\\)", 
+                             replacement="") %>% unlist()) %>%
+  mutate(leto_volitev = leto_volitev %>% 
            str_replace("1788–1789", "1788") %>% 
            str_replace("18001804", "1800 1804")) %>% 
-  separate_rows(volitve, sep=" ") %>%   # vsako leto volitev nova vrstica
-  mutate(volitve = parse_number(volitve, na= c("–", "–"))) %>% 
+  separate_rows(leto_volitev, sep=" ") %>%   # vsako leto volitev nova vrstica
+  mutate(leto_volitev = leto_volitev %>% parse_number(na= c("–", "–"))) %>% 
+  mutate(zap_stevilka = zap_stevilka %>% parse_number) %>% 
   mutate(stranka = case_when(
     str_detect(stranka, "Democratic-RepublicanNational Republican") ~ "Democratic-Republican_National Republican",
     str_detect(stranka, "WhigUnaffiliated") ~ "Whig_Unaffiliated",
@@ -80,17 +81,28 @@ tabela_predsedniki = tabela_predsedniki %>%
     str_detect(stranka, "National UnionDemocratic") ~ "National Union_Democratic",
     TRUE ~ stranka
   )) %>% 
-  separate_rows(stranka, sep="_")
+  separate_rows(stranka, sep="_") %>% 
+  left_join(tabela_predsedniki_rojstva, by=c("predsednik"="President")) %>% 
+  rename(datum_rojstva = "Date of birth", kraj_rojstva = Birthplace, 
+         zvezna_drzava_rojstva = "State† of birth") %>% 
+  select(-"In office") %>% 
+  mutate(datum_rojstva = as.Date(strptime(datum_rojstva, "%B %d, %Y"))) %>% 
+  mutate(zvezna_drzava_rojstva = zvezna_drzava_rojstva %>% str_replace_all("†", "")) %>% 
+  left_join(tabela_predsedniki_leta %>% 
+    mutate(
+      President = President %>% str_replace_all("\\[.+?\\]", "")
+    ),
+    by=c("predsednik"="President")
+    ) %>% # popravimo predsednike, da se ujamejo
+  rename(datum_smrti = "Date[d]", kraj_smrti = Place) %>% 
+  mutate(datum_smrti = datum_smrti %>% str_replace_all("\\(|\\)|\\[.+?\\]", "")) %>% 
+  mutate(datum_smrti = as.Date(strptime(datum_smrti, "%B %d %Y"))) %>% 
+  select(-Age, -Cause, -Order, -contains("Presidency")) %>%  # Presidency (order) dates ni zaznavalo
+  separate(kraj_smrti, into=c("kraj_smrti", "zvezna_drzava_smrti"), sep=", ") %>% 
+  select(colnames(predsedniki)) %>% # da imamo enak vrstni red stolpcev
+  arrange(zap_stevilka)
 
 
-# stranke = unique(tabela_predsedniki$stranka)[c(-4, -7, -8, -9)] %>% 
-#   append(c("National Republican", "National Union")) 
-# tabela_stranke = lapply(lapply(tabela_predsedniki$stranka, str_equal, stranke), function(x) stranke[x]) %>% 
-#   unlist() %>%
-#   as.tibble()
-# colnames(tabela_stranke) = c("stranka")
-# # dobimo seznam vektorjev, ki imajo natanko en TRUE, s funkcijo jih poberemo ven
-# 
-# tabela_predsedniki = tabela_predsedniki %>% 
-#   left_join(tabela_stranke, by="stranka")
+
+
          
