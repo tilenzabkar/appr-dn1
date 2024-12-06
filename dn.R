@@ -79,6 +79,7 @@ tabela_predsedniki = stran_predsedniki %>%
   ) %>%
   separate_rows(leto_volitev, sep = " ") %>%   # vsako leto volitev nova vrstica
   mutate(leto_volitev = leto_volitev %>% parse_number(na = c("–", "–"))) %>%
+  mutate(leto_volitev = leto_volitev %>% as.integer) %>%
   mutate(zap_stevilka = zap_stevilka %>% parse_number) %>%
   mutate(
     stranka = case_when(
@@ -111,13 +112,28 @@ tabela_predsedniki = stran_predsedniki %>%
   separate(kraj_smrti,
            into = c("kraj_smrti", "zvezna_drzava_smrti"),
            sep = ", ") %>%
-  select(colnames(predsedniki)) %>% # da imamo enak vrstni red stolpcev
+  select(
+    c(
+      "zap_stevilka",
+      "predsednik",
+      "datum_rojstva",
+      "kraj_rojstva",
+      "zvezna_drzava_rojstva",
+      "datum_smrti",
+      "kraj_smrti",
+      "zvezna_drzava_smrti",
+      "stranka",
+      "leto_volitev",
+      "zacetek_mandata",
+      "konec_mandata"
+    )
+  ) %>% # da imamo enak vrstni red stolpcev
   arrange(zap_stevilka)
 
 
 
 tabela_podpredsedniki = stran_podpredsedniki %>%
-  html_nodes(xpath = "//table[@class='wikitable sortable sticky-header jquery-tablesorter']") %>%
+  html_nodes(xpath = "//table[@class = 'wikitable sortable sticky-header jquery-tablesorter']") %>%
   .[[1]] %>%
   html_table() %>%
   select(c(-2, -5)) %>%
@@ -160,6 +176,7 @@ tabela_podpredsedniki = stran_podpredsedniki %>%
            str_replace("1788–89", "1788")) %>%
   separate_rows(leto_volitev, sep = "\\s+") %>% # " " ni deloval
   mutate(leto_volitev = leto_volitev %>% parse_number(na = c("–", "–"))) %>%
+  mutate(leto_votitev = leto_volitev %>% as.integer) %>%
   mutate(zap_stevilka = zap_stevilka %>% parse_number) %>%
   mutate(podpredsednik = str_trim(podpredsednik)) %>% # nekateri predsedniki imajo presledek po imenu
   left_join(tabela_podpredsedniki_starost[-c(1, 4, 5, 6, 8)],
@@ -169,7 +186,19 @@ tabela_podpredsedniki = stran_podpredsedniki %>%
            str_replace_all("July 5, 1826Jul 4, 1826", "Jul 4, 1826")) %>%
   mutate(datum_rojstva = as.Date(strptime(datum_rojstva, "%B %d, %Y"))) %>%
   mutate(datum_smrti = as.Date(strptime(datum_smrti, "%B %d, %Y"))) %>%
-  select(colnames(podpredsedniki)) %>%
+  select(
+    c(
+      "zap_stevilka",
+      "podpredsednik",
+      "datum_rojstva",
+      "datum_smrti",
+      "stranka",
+      "leto_volitev",
+      "zacetek_mandata",
+      "konec_mandata",
+      "predsednik"
+    )
+  ) %>%
   arrange(zap_stevilka)
 
 
@@ -188,12 +217,13 @@ tabela_glavna_mesta = stran_glavna_mesta %>%
   ) %>%
   mutate(povrsina_km2 = povrsina_km2 %>%
            str_extract("\\(.+?\\)") %>%
-           str_replace_all("\\(|\\)", "")) %>%
+           parse_number) %>%
   mutate(glavno_mesto = glavno_mesto %>% str_trim()) %>%
   mutate(mesto_drzava = paste(glavno_mesto, drzava, sep = "_"))
 
+# ni šlo v eni cevi, ker se je za mesta_list potrebno sklicati na tabela_glavna_mesta
 
-mesta_test = lapply(mesta_populacije_vsa_leta, function(df) {
+mesta_list = lapply(mesta_populacije_vsa_leta, function(df) {
   df %>%
     separate(NAME, into = c("mesto", "drzava"), sep = " ?, ?") %>%
     rename(populacija = B01003_001E) %>%
@@ -211,7 +241,58 @@ mesta_test = lapply(mesta_populacije_vsa_leta, function(df) {
     filter(mesto_drzava %in% tabela_glavna_mesta$mesto_drzava)
 })
 
-lapply(mesta_test, function(df) {
-  df %>%
-    select(populacija)
-}) %>% bind_cols()
+tabela_glavna_mesta = tabela_glavna_mesta %>%
+  left_join(
+    bind_cols(mesto_drzava = mesta_list[[1]]$mesto_drzava, # nepotrebno, da shranjujemo od vseh, saj so enake
+              lapply(mesta_list, function(df) {
+                df$populacija
+              }))
+    ,
+    by = c("mesto_drzava" = "mesto_drzava")
+  ) %>%
+  rename_with(~ as.character(as.numeric(str_replace_all(., "\\.\\.\\.", "")) + 2008), # odstranimo pike in seštejemo, da dobimo letnico
+              starts_with("...")) %>%
+  pivot_longer(-c(1:6), names_to = "leto", values_to = "populacija") %>%
+  mutate(populacija = populacija %>% parse_number) %>%
+  mutate(leto = leto %>% parse_number) %>%
+  mutate(leto_razglasitve = leto_razglasitve %>% parse_number) %>%
+  mutate(rang_v_drzavi = rang_v_drzavi %>% parse_number) %>%
+  select(-mesto_drzava) %>%
+  select(colnames(glavna_mesta)) %>%
+  arrange(leto)
+
+
+tabela_drzave_populacija = left_join(populacija_drzave_vsa_leta[[1]],
+                                     populacija_drzave_vsa_leta[[2]],
+                                     by = "table with row headers in column A and column headers in rows 3 through 4. (leading dots indicate sub-parts)") %>%
+  slice(10:60) %>%
+  select(-c(3, 4, 15)) %>%
+  mutate(`...2.x` = `...2.x` %>% parse_number,
+         `...2.y` = `...2.y` %>% parse_number) %>%
+  rename_with(
+    ~ case_when(
+      endsWith(., "2.y") ~ "...14",
+      # moramo ročno popraviti, sicer se ne izidejo letnice
+      endsWith(., "y") ~ paste("...", as.character(as.numeric(
+        str_extract(., "[0-9]+")
+      ) + 11), sep = ""),
+      endsWith(., "2.x") ~ "...4",
+      endsWith(., "x") ~ str_replace(., "\\.x", ""),
+      TRUE ~ .
+    )
+  ) %>%
+  rename_with(~ ifelse(
+    startsWith(., "..."),
+    as.character(as.numeric(str_replace_all(., "\\.\\.\\.", "")) + 2006),
+    "drzava"
+  )) %>% # enak trik kot prej
+  pivot_longer(-1, names_to = "leto", values_to = "populacija") %>%
+  mutate(drzava = drzava %>% str_replace("\\.", ""),
+         leto = leto %>% parse_number)
+
+
+test1 = all_equal(tabela_predsedniki, predsedniki, na_equal = TRUE)
+test2 = all_equal(tabela_podpredsedniki, podpredsedniki, na_equal = TRUE)
+test3 = all_equal(tabela_drzave_populacija, drzave_populacija, na_equal = TRUE)
+test4 = all_equal(tabela_glavna_mesta, glavna_mesta, na_equal = TRUE)
+all(test1, test2, test3, test4)
