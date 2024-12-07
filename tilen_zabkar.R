@@ -1,7 +1,6 @@
 library(tidyverse)
 library(rvest)
 library(readxl)
-load(file = "tabele.RData")
 
 stran_glavna_mesta =
   "https://kt.ijs.si/~ljupco/lectures/appr-2425-dn1-podatki/List%20of%20capitals%20in%20the%20United%20States%20-%20Wikipedia.html" %>%
@@ -44,7 +43,7 @@ populacija_drzave_vsa_leta = lapply(populacija_drzave, read_excel)
 
 
 
-tabela_predsedniki = stran_predsedniki %>%
+predsedniki = stran_predsedniki %>%
   html_nodes(xpath = "//table[@class='wikitable sortable sticky-header jquery-tablesorter']") %>%
   .[[1]] %>%
   html_table() %>%
@@ -132,7 +131,7 @@ tabela_predsedniki = stran_predsedniki %>%
 
 
 
-tabela_podpredsedniki = stran_podpredsedniki %>%
+podpredsedniki = stran_podpredsedniki %>%
   html_nodes(xpath = "//table[@class = 'wikitable sortable sticky-header jquery-tablesorter']") %>%
   .[[1]] %>%
   html_table() %>%
@@ -202,7 +201,7 @@ tabela_podpredsedniki = stran_podpredsedniki %>%
   arrange(zap_stevilka)
 
 
-tabela_glavna_mesta = stran_glavna_mesta %>%
+glavna_mesta = stran_glavna_mesta %>%
   html_nodes(xpath = "//table[@class='wikitable plainrowheaders sortable jquery-tablesorter']") %>%
   .[[1]] %>%
   html_table() %>%
@@ -221,7 +220,7 @@ tabela_glavna_mesta = stran_glavna_mesta %>%
   mutate(glavno_mesto = glavno_mesto %>% str_trim()) %>%
   mutate(mesto_drzava = paste(glavno_mesto, drzava, sep = "_"))
 
-# ni šlo v eni cevi, ker se je za mesta_list potrebno sklicati na tabela_glavna_mesta
+# ni šlo v eni cevi, ker se je za mesta_list potrebno sklicati na glavna_mesta
 
 mesta_list = lapply(mesta_populacije_vsa_leta, function(df) {
   df %>%
@@ -238,10 +237,10 @@ mesta_list = lapply(mesta_populacije_vsa_leta, function(df) {
         str_replace("Nashville-Davidson metropolitan government", "Nashville")
     ) %>%
     mutate(mesto_drzava = paste(mesto, drzava, sep = "_")) %>%
-    filter(mesto_drzava %in% tabela_glavna_mesta$mesto_drzava)
+    filter(mesto_drzava %in% glavna_mesta$mesto_drzava)
 })
 
-tabela_glavna_mesta = tabela_glavna_mesta %>%
+glavna_mesta = glavna_mesta %>%
   left_join(
     bind_cols(mesto_drzava = mesta_list[[1]]$mesto_drzava, # nepotrebno, da shranjujemo od vseh, saj so enake
               lapply(mesta_list, function(df) {
@@ -258,13 +257,26 @@ tabela_glavna_mesta = tabela_glavna_mesta %>%
   mutate(leto_razglasitve = leto_razglasitve %>% parse_number) %>%
   mutate(rang_v_drzavi = rang_v_drzavi %>% parse_number) %>%
   select(-mesto_drzava) %>%
-  select(colnames(glavna_mesta)) %>%
+  select(
+    c(
+      "glavno_mesto",
+      "drzava",
+      "leto",
+      "populacija",
+      "leto_razglasitve",
+      "povrsina_km2",
+      "rang_v_drzavi"
+    )
+  ) %>%
   arrange(leto)
 
 
-tabela_drzave_populacija = left_join(populacija_drzave_vsa_leta[[1]],
-                                     populacija_drzave_vsa_leta[[2]],
-                                     by = "table with row headers in column A and column headers in rows 3 through 4. (leading dots indicate sub-parts)") %>%
+drzave_populacija = left_join(
+  populacija_drzave_vsa_leta[[1]],
+  populacija_drzave_vsa_leta[[2]],
+  by = "table with row headers in column A and column headers in rows 3 through 4. (leading dots indicate sub-parts)",
+  relationship = "many-to-many"
+) %>%
   slice(10:60) %>%
   select(-c(3, 4, 15)) %>%
   mutate(`...2.x` = `...2.x` %>% parse_number,
@@ -291,8 +303,15 @@ tabela_drzave_populacija = left_join(populacija_drzave_vsa_leta[[1]],
          leto = leto %>% parse_number)
 
 
-test1 = all_equal(tabela_predsedniki, predsedniki, na_equal = TRUE)
-test2 = all_equal(tabela_podpredsedniki, podpredsedniki, na_equal = TRUE)
-test3 = all_equal(tabela_drzave_populacija, drzave_populacija, na_equal = TRUE)
-test4 = all_equal(tabela_glavna_mesta, glavna_mesta, na_equal = TRUE)
-all(test1, test2, test3, test4)
+
+# tabela_predsedniki = predsedniki
+# tabela_podpredsedniki = podpredsedniki
+# tabela_glavna_mesta = glavna_mesta
+# tabela_drzave_populacija = drzave_populacija
+# 
+# load(file = "tabele.RData")
+# test1 = all_equal(tabela_predsedniki, predsedniki, na_equal = TRUE)
+# test2 = all_equal(tabela_podpredsedniki, podpredsedniki, na_equal = TRUE)
+# test3 = all_equal(tabela_drzave_populacija, drzave_populacija, na_equal = TRUE)
+# test4 = all_equal(tabela_glavna_mesta, glavna_mesta, na_equal = TRUE)
+# all(test1, test2, test3, test4)
